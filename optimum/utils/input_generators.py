@@ -858,7 +858,7 @@ class DummyVisionInputGenerator(DummyInputGenerator):
 
 
 class DummyAudioInputGenerator(DummyInputGenerator):
-    SUPPORTED_INPUT_NAMES = ("input_features", "input_values")
+    SUPPORTED_INPUT_NAMES = ("input_features", "input_values", "attention_mask")
 
     def __init__(
         self,
@@ -884,6 +884,7 @@ class DummyAudioInputGenerator(DummyInputGenerator):
         self.batch_size = batch_size
         self.sequence_length = audio_sequence_length
         self.target_length = target_length
+        self.padding_side = getattr(self.normalized_config, "padding_side", "right")
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "input_values":  # raw waveform
@@ -894,7 +895,7 @@ class DummyAudioInputGenerator(DummyInputGenerator):
                 framework=framework,
                 dtype=float_dtype,
             )
-        else:
+        elif input_name == "input_features":  # precomputed features
             if self.normalized_config.model_type == "wav2vec2-bert":
                 shape = [self.batch_size, self.target_length, self.feature_size]
             else:
@@ -906,6 +907,17 @@ class DummyAudioInputGenerator(DummyInputGenerator):
                 max_value=1,
                 framework=framework,
                 dtype=float_dtype,
+            )
+        elif input_name == "attention_mask":
+            if self.normalized_config.model_type == "wav2vec2-bert":
+                shape = [self.batch_size, self.target_length]
+            else:
+                shape = [self.batch_size, self.nb_max_frames]
+            return self.random_mask_tensor(
+                shape=shape,
+                padding_side=self.padding_side,
+                framework=framework,
+                dtype=int_dtype,
             )
 
 
