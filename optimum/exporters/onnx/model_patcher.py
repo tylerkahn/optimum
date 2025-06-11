@@ -1381,3 +1381,47 @@ class VitPoseModelPatcher(ModelPatcher):
             model_kwargs["dataset_index"] = torch.tensor(0, device=model.device)
 
         super().__init__(config, model, model_kwargs)
+
+
+class Wav2Vec2BertModelPatcher(ModelPatcher):
+    def __init__(
+        self,
+        config: "OnnxConfig",
+        model: Union["PreTrainedModel", "TFPreTrainedModel"],
+        model_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(config, model, model_kwargs)
+
+        # Ensure the model config has output_hidden_states=True
+        if hasattr(model, 'config'):
+            model.config.output_hidden_states = True
+
+        @functools.wraps(self.orig_forward)
+        def patched_forward(*args, **kwargs):
+            # Force output_hidden_states=True to get all hidden states
+            model_kwargs = self.model_kwargs.copy()
+            model_kwargs["output_hidden_states"] = True
+
+            signature = inspect.signature(self.orig_forward)
+            args, kwargs = override_arguments(args, kwargs, signature, model_kwargs=model_kwargs)
+
+            outputs = self.orig_forward(*args, **kwargs)
+
+            # Filter outputs based on config
+            filtered_outputs = {}
+            for name, value in outputs.items():
+                onnx_output_name = config.torch_to_onnx_output_map.get(name, name)
+                if (
+                    onnx_output_name in config.outputs
+                    or any(key.startswith(onnx_output_name) for key in config.outputs.keys())
+                ):
+                    # Handle hidden_states specially - it's a tuple/list that needs flattening
+                    if name == "hidden_states" and isinstance(value, (list, tuple)):
+                        for i, hidden_state in enumerate(value):
+                            filtered_outputs[f"hidden_states.{i}"] = hidden_state
+                    else:
+                        filtered_outputs[name] = value
+
+            return filtered_outputs
+
+        self.patched_forward = patched_forward

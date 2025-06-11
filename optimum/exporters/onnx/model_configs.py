@@ -100,6 +100,7 @@ from .model_patcher import (
     VisionEncoderDecoderPatcher,
     VitPoseModelPatcher,
     WavLMModelPatcher,
+    Wav2Vec2BertModelPatcher
 )
 
 
@@ -1673,12 +1674,36 @@ class Wav2Vec2ConformerOnnxConfig(HubertOnnxConfig):
     DEFAULT_ONNX_OPSET = 11
 
 
+
 class Wav2Vec2BertOnnxConfig(Wav2Vec2OnnxConfig):
     DEFAULT_ONNX_OPSET = 12
 
     @property
     def inputs(self) -> Dict[str, Dict[int, str]]:
-        return {"input_features": {0: "batch_size", 1: "sequence_length"}, "attention_mask": {0: "batch_size", 1: "sequence_length"}}
+        return {
+            "input_features": {0: "batch_size", 1: "sequence_length"},
+            "attention_mask": {0: "batch_size", 1: "sequence_length"}
+        }
+
+    @property
+    def outputs(self) -> Dict[str, Dict[int, str]]:
+        outputs = {
+            "last_hidden_state": {0: "batch_size", 1: "sequence_length"}
+        }
+
+        # Add hidden states from all layers if output_hidden_states is True
+        if getattr(self._normalized_config, "output_hidden_states", False):
+            # Wav2Vec2Bert has encoder layers + feature projection layer
+            num_layers = self._normalized_config.num_hidden_layers
+            for i in range(num_layers):
+                outputs[f"hidden_states.{i}"] = {0: "batch_size", 1: "sequence_length"}
+
+        return outputs
+
+    def patch_model_for_export(
+        self, model: Union["PreTrainedModel", "TFPreTrainedModel"], model_kwargs: Optional[Dict[str, Any]] = None
+    ) -> "ModelPatcher":
+        return Wav2Vec2BertModelPatcher(self, model, model_kwargs=model_kwargs)
 
 
 class SEWOnnxConfig(HubertOnnxConfig):
